@@ -75,9 +75,20 @@ macro_rules! app {
 }
 
 /// Trait that must be implemented by application state types
-pub trait State {
+pub trait State: Sized + serde::Serialize + serde::de::DeserializeOwned {
     /// Creates a new instance of the state.
     fn new() -> Self;
+
+    /// Loads old state.
+    /// By default, loads old state, if it exists; else creates new instance.
+    fn load() -> Self {
+        let state = get_typed_state(|bytes| serde_json::from_slice(bytes)).unwrap_or({
+            let state = Self::new();
+            set_state(&serde_json::to_vec(&state).expect("failed to serialize state to bytes"));
+            state
+        });
+        state
+    }
 }
 
 /// Creates a standard Hyperware application with HTTP server and WebSocket support
@@ -127,11 +138,7 @@ pub fn app<S, T1, T2, T3>(
         .bind_ws_path("/updates", http::server::WsBindingConfig::default())
         .expect("failed to bind WS path");
 
-    let mut state = get_typed_state(|bytes| serde_json::from_slice(bytes)).unwrap_or({
-        let state = S::new();
-        set_state(&serde_json::to_vec(&state).expect("failed to serialize state to bytes"));
-        state
-    });
+    let mut state = S::load();
 
     loop {
         match await_message() {
